@@ -42,7 +42,7 @@ export async function scanReceipt(
   imageDataUrl: string,
   onProgress?: (pct: number, status: string) => void
 ): Promise<OCRResult> {
-  onProgress?.(15, "Sending to Llama 4 Scout…");
+  onProgress?.(15, "Sending to Qwen 3.8 Vision…");
 
   const response = await fetch("/api/scan", {
     method: "POST",

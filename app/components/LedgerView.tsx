@@ -187,7 +187,7 @@ export default function LedgerView({ receipts, mode, onSelect }: Props) {
               >
                 {row.main}
                 {row.trail && (
-                  <span style={{ color: T.faint, fontSize: 12 }}> — {row.trail}</span>
+                  <span style={{ color: T.faint, fontSize: 12 }}> · {row.trail}</span>
                 )}
               </span>
               <span

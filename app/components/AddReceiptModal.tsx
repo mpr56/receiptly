@@ -192,7 +192,7 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
         {step === "photo" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <p style={{ margin: 0, fontSize: 13, color: T.soft, textAlign: "center" }}>
-              Take or upload a photo — we&apos;ll read it automatically
+              Take or upload a photo and we&apos;ll read it automatically
             </p>
 
             <input
@@ -271,7 +271,7 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                 padding: "4px 0",
               }}
             >
-              Skip — enter details manually
+              Skip and enter details manually
             </button>
           </div>
         )}
@@ -363,7 +363,7 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                 }}
               >
                 <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                <span>Couldn&apos;t read the receipt — enter the details manually. ({scanError})</span>
+                <span>Couldn&apos;t read the receipt. Enter the details manually. ({scanError})</span>
               </div>
             )}
 

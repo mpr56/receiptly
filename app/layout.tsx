@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Receiptly — Digital Receipt Vault",
+  title: "Receiptly: Your Digital Receipt Vault",
   description: "Track, organise, and search your receipts digitally",
 };
 
