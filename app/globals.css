@@ -1,13 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --background: #08080f;
-  --foreground: #ffffff;
+  --background: oklch(97% 0.006 75);
+  --foreground: oklch(18% 0.01 90);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+  margin: 0;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -15,12 +16,12 @@ body {
   box-sizing: border-box;
 }
 
-input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.5);
+a {
+  color: #3b6fd6;
+  text-decoration: none;
 }
-
-select option {
-  background: #0d0b18;
+a:hover {
+  color: #2c58ad;
 }
 
 .scrollbar-none::-webkit-scrollbar {
@@ -29,6 +30,19 @@ select option {
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Ledger rows tint on hover — cheaper than a JS hover state per row. */
+.ledger-row:hover {
+  background: oklch(97% 0.004 90);
+}
+
+.add-btn:hover {
+  background: oklch(96% 0.01 255);
+}
+
+.underline-input:focus {
+  border-bottom-color: #3b6fd6 !important;
 }
 
 @keyframes scanline {

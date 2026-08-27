@@ -1,15 +1,7 @@
 "use client";
 
 import { Receipt } from "@/types";
-import { formatCurrency, formatDate } from "@/lib/data";
-import { X, CreditCard, Banknote, Smartphone, Tag, Camera } from "lucide-react";
-import GlassSurface from "./GlassSurface";
-
-const PAYMENT_ICONS = {
-  card: CreditCard,
-  cash: Banknote,
-  digital: Smartphone,
-};
+import { T, MONO, SANS, RECEIPT_CLIP, catStyle, fmtMoney } from "./theme";
 
 interface Props {
   receipt: Receipt;
@@ -17,159 +9,213 @@ interface Props {
 }
 
 export default function ReceiptModal({ receipt, onClose }: Props) {
-  const PayIcon = PAYMENT_ICONS[receipt.paymentMethod];
+  const cs = catStyle(receipt.category);
+  const dateLabel = new Date(receipt.date)
+    .toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
+    .toUpperCase();
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
       onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "oklch(20% 0.01 90 / 0.5)",
+        backdropFilter: "blur(4px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+        zIndex: 50,
+      }}
     >
-      <div
-        className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl"
-        style={{
-          background: "rgba(16,14,28,0.92)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          boxShadow: "0 8px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.1)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="p-6 border-b" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center gap-3">
+      <div onClick={(e) => e.stopPropagation()} style={{ position: "relative" }}>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            position: "absolute",
+            top: -14,
+            right: -14,
+            width: 32,
+            height: 32,
+            borderRadius: 999,
+            background: "#fff",
+            border: `1px solid ${T.border}`,
+            cursor: "pointer",
+            fontSize: 16,
+            color: T.label,
+            zIndex: 2,
+          }}
+        >
+          ×
+        </button>
+
+        <div className="scrollbar-none" style={{ maxHeight: "86vh", overflowY: "auto" }}>
+          <div
+            style={{
+              background: "oklch(99% 0.002 90)",
+              width: 360,
+              maxWidth: "100%",
+              padding: "36px 30px 30px",
+              boxShadow: "0 24px 60px rgba(20,20,30,0.3)",
+              transform: "rotate(-0.5deg)",
+              fontFamily: MONO,
+              color: "#1c1c1c",
+              clipPath: RECEIPT_CLIP,
+            }}
+          >
+            <div style={{ textAlign: "center" }}>
               <div
-                className="w-13 h-13 rounded-xl flex items-center justify-center text-sm font-bold"
                 style={{
-                  background: `${receipt.storeColor}22`,
-                  border: `1px solid ${receipt.storeColor}55`,
-                  color: receipt.storeColor,
-                  width: 52,
-                  height: 52,
+                  fontSize: 19,
+                  fontWeight: 800,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
                 }}
               >
-                {receipt.storeLogoInitials}
+                {receipt.storeName}
               </div>
-              <div>
-                <h2 className="text-white font-semibold text-lg">{receipt.storeName}</h2>
-                <p className="text-white/40 text-sm">{formatDate(receipt.date)}</p>
+              <div style={{ fontSize: 11, color: "#777", marginTop: 6, letterSpacing: "0.08em" }}>
+                {dateLabel}
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="text-white/40 hover:text-white/80 transition-colors rounded-lg p-1"
-            >
-              <X size={20} />
-            </button>
-          </div>
 
-          {/* Total + category */}
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-white/40 text-xs mb-1">Total Paid</p>
-              <p className="text-white text-3xl font-bold tracking-tight">
-                {formatCurrency(receipt.totalAmount)}
-              </p>
-            </div>
-            <div className="flex flex-col items-end gap-1">
+            <Rule margin="22px 0 18px" />
+
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+              <span style={{ fontSize: 11, letterSpacing: "0.06em", color: "#777" }}>TOTAL PAID</span>
               <span
-                className="text-xs px-2.5 py-1 rounded-full"
                 style={{
-                  background: "rgba(99,102,241,0.2)",
-                  color: "#a5b4fc",
-                  border: "1px solid rgba(99,102,241,0.35)",
+                  background: cs.bg,
+                  color: cs.text,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "3px 9px",
+                  borderRadius: 999,
+                  fontFamily: SANS,
+                  whiteSpace: "nowrap",
                 }}
               >
                 {receipt.category}
               </span>
-              <span className="flex items-center gap-1 text-white/40 text-xs">
-                <PayIcon size={11} />
-                {receipt.paymentMethod}
-              </span>
             </div>
-          </div>
-        </div>
+            <div style={{ fontSize: 30, fontWeight: 800, marginTop: 4 }}>
+              {fmtMoney(receipt.totalAmount)}
+            </div>
+            <div style={{ fontSize: 12, color: "#777", marginTop: 6 }}>
+              Paid by {receipt.paymentMethod}
+            </div>
 
-        {/* Items */}
-        <div className="p-6">
-          <p className="text-white/40 text-xs uppercase tracking-widest mb-3">Items</p>
-          <div className="space-y-2">
-            {receipt.items.map((item, i) => (
+            <Rule margin="20px 0 14px" />
+
+            <div style={{ fontSize: 11, letterSpacing: "0.06em", color: "#777", marginBottom: 10 }}>
+              ITEMS
+            </div>
+            {receipt.items.map((it, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between py-2.5 border-b"
-                style={{ borderColor: "rgba(255,255,255,0.06)" }}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  padding: "7px 0",
+                  borderBottom: "1px dashed rgba(0,0,0,0.12)",
+                  fontSize: 14,
+                }}
               >
-                <div className="flex-1 min-w-0">
-                  <p className="text-white/85 text-sm truncate">{item.name}</p>
-                  {item.quantity > 1 && (
-                    <p className="text-white/35 text-xs">
-                      {item.quantity} × {formatCurrency(item.unitPrice)}
-                    </p>
+                <span>
+                  {it.name}
+                  {it.quantity > 1 && (
+                    <span style={{ color: "#999", fontSize: 12 }}>
+                      {" "}
+                      {it.quantity} × {fmtMoney(it.unitPrice)}
+                    </span>
                   )}
-                </div>
-                <span className="text-white/70 text-sm font-medium ml-4">
-                  {formatCurrency(item.totalPrice)}
+                </span>
+                <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>
+                  {fmtMoney(it.totalPrice)}
                 </span>
               </div>
             ))}
-          </div>
 
-          {/* Total row */}
-          <div className="flex items-center justify-between mt-4 pt-3">
-            <span className="text-white/60 text-sm font-medium">Total</span>
-            <span className="text-white font-bold">{formatCurrency(receipt.totalAmount)}</span>
-          </div>
-        </div>
-
-        {/* Tags */}
-        {receipt.tags.length > 0 && (
-          <div
-            className="px-6 pb-4 flex flex-wrap gap-2"
-          >
-            {receipt.tags.map((tag) => (
-              <span
-                key={tag}
-                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full"
-                style={{
-                  background: "rgba(255,255,255,0.06)",
-                  color: "rgba(255,255,255,0.45)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                }}
-              >
-                <Tag size={10} />
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Receipt photo placeholder */}
-        {receipt.imageDataUrl ? (
-          <div className="px-6 pb-6">
-            <p className="text-white/40 text-xs uppercase tracking-widest mb-3">Receipt Photo</p>
-            <img
-              src={receipt.imageDataUrl}
-              alt="Receipt"
-              className="w-full rounded-xl"
-              style={{ border: "1px solid rgba(255,255,255,0.1)" }}
-            />
-          </div>
-        ) : (
-          <div className="px-6 pb-6">
             <div
-              className="rounded-xl p-6 flex flex-col items-center gap-2 text-center"
               style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px dashed rgba(255,255,255,0.1)",
+                display: "flex",
+                justifyContent: "space-between",
+                fontWeight: 800,
+                fontSize: 15,
+                marginTop: 14,
+                paddingTop: 12,
+                borderTop: "1px dashed rgba(0,0,0,0.25)",
               }}
             >
-              <Camera size={20} className="text-white/25" />
-              <p className="text-white/30 text-xs">No receipt photo attached</p>
+              <span>TOTAL</span>
+              <span>{fmtMoney(receipt.totalAmount)}</span>
+            </div>
+
+            {receipt.tags.length > 0 && (
+              <div style={{ textAlign: "center", marginTop: 16, display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+                {receipt.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    style={{
+                      display: "inline-block",
+                      border: "1px solid rgba(0,0,0,0.15)",
+                      borderRadius: 999,
+                      padding: "4px 12px",
+                      fontSize: 11,
+                      color: "#555",
+                      fontFamily: SANS,
+                    }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {receipt.imageDataUrl && (
+              <img
+                src={receipt.imageDataUrl}
+                alt="Scanned receipt"
+                style={{
+                  width: "100%",
+                  marginTop: 18,
+                  maxHeight: 150,
+                  objectFit: "cover",
+                  filter: "grayscale(0.35) contrast(1.05)",
+                  border: "1px solid rgba(0,0,0,0.1)",
+                }}
+              />
+            )}
+
+            <div
+              style={{
+                height: 36,
+                marginTop: 22,
+                background:
+                  "repeating-linear-gradient(90deg, #1a1a1a 0 2px, transparent 2px 3px, #1a1a1a 5px 6px, transparent 6px 9px, #1a1a1a 9px 12px, transparent 12px 14px)",
+              }}
+            />
+            <div
+              style={{
+                textAlign: "center",
+                fontSize: 9,
+                color: "#999",
+                letterSpacing: "0.06em",
+                marginTop: 8,
+              }}
+            >
+              receiptly.app/{receipt.id}
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
+}
+
+function Rule({ margin }: { margin: string }) {
+  return <div style={{ borderTop: "1px dashed rgba(0,0,0,0.25)", margin }} />;
 }

@@ -61,9 +61,10 @@ export async function POST(req: NextRequest) {
 
     const groq = getGroqClient();
     const completion = await groq.chat.completions.create({
-      model: "meta-llama/llama-4-scout-17b-16e-instruct",
+      model: "qwen/qwen3.8-27b",
       temperature: 0.1,
       max_tokens: 1500,
+      response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -91,8 +92,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(parsed);
   } catch (err) {
     console.error("Scan API error:", err);
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: "Failed to scan receipt", details: String(err) },
+      { error: `Failed to scan receipt: ${message}` },
       { status: 500 }
     );
   }

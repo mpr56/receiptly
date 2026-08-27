@@ -34,15 +34,10 @@ export interface Receipt {
 }
 
 export type SortField = "date" | "amount" | "store";
-export type SortDir = "asc" | "desc";
 
 export interface FilterState {
   search: string;
-  category: ProductCategory | "All";
-  dateFrom: string;
-  dateTo: string;
-  amountMin: string;
-  amountMax: string;
+  /** Empty array means "no category filter" — i.e. show all. */
+  categories: ProductCategory[];
   sortField: SortField;
-  sortDir: SortDir;
 }

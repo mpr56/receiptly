@@ -5,7 +5,8 @@ import { Receipt, ProductCategory } from "@/types";
 import { CATEGORIES, getStoreColor, getInitials } from "@/lib/data";
 import { processReceiptImage } from "@/lib/imageProcessor";
 import { scanReceipt, OCRResult } from "@/lib/ocr";
-import { X, Camera, Upload, Plus, Trash2, CheckCircle, AlertCircle, Loader2, Sparkles } from "lucide-react";
+import { T, SANS, seg, fieldStyle, labelStyle, fmtMoney } from "./theme";
+import { Camera, Upload, Trash2, CheckCircle, AlertCircle, Loader2, Sparkles } from "lucide-react";
 
 interface Props {
   onAdd: (receipt: Receipt) => void;
@@ -20,22 +21,21 @@ interface ItemRow {
 
 type Step = "photo" | "scanning" | "details";
 
-interface ScanProgress {
-  pct: number;
-  status: string;
-}
-
-// Confidence badge
 function ConfidenceBadge({ score }: { score: number }) {
   if (score <= 0) return null;
   const high = score >= 0.75;
   return (
     <span
-      className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full"
       style={{
-        background: high ? "rgba(34,197,94,0.15)" : "rgba(234,179,8,0.15)",
-        border: `1px solid ${high ? "rgba(34,197,94,0.3)" : "rgba(234,179,8,0.3)"}`,
-        color: high ? "#86efac" : "#fde68a",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 10,
+        padding: "2px 7px",
+        borderRadius: 999,
+        fontFamily: SANS,
+        background: high ? "oklch(94% 0.05 145)" : "oklch(94% 0.06 85)",
+        color: high ? "oklch(38% 0.09 145)" : "oklch(40% 0.1 75)",
       }}
     >
       {high ? <CheckCircle size={9} /> : <AlertCircle size={9} />}
@@ -48,82 +48,65 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
   const [step, setStep] = useState<Step>("photo");
   const [imageDataUrl, setImageDataUrl] = useState<string | undefined>();
   const [compressedKB, setCompressedKB] = useState<{ original: number; compressed: number } | null>(null);
-  const [scanProgress, setScanProgress] = useState<ScanProgress>({ pct: 0, status: "" });
+  const [scanProgress, setScanProgress] = useState({ pct: 0, status: "" });
+  const [scanError, setScanError] = useState<string | null>(null);
   const [ocr, setOcr] = useState<OCRResult | null>(null);
 
-  // Form fields
   const [storeName, setStoreName] = useState("");
   const [category, setCategory] = useState<ProductCategory>("Other");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [time, setTime] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"card" | "cash" | "digital">("card");
   const [items, setItems] = useState<ItemRow[]>([{ name: "", quantity: 1, unitPrice: 0 }]);
+  const [tagInput, setTagInput] = useState("");
 
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
 
   const handleImageFile = useCallback(async (file: File) => {
     setStep("scanning");
+    setScanError(null);
     setScanProgress({ pct: 2, status: "Processing image…" });
 
     try {
-      // Step 1: compress + crop
       const processed = await processReceiptImage(file);
       setImageDataUrl(processed.dataUrl);
       setCompressedKB({ original: processed.originalSizeKB, compressed: processed.compressedSizeKB });
       setScanProgress({ pct: 8, status: "Image ready, scanning…" });
 
-      // Step 2: OCR
-      const result = await scanReceipt(processed.dataUrl, (pct, status) => {
-        setScanProgress({ pct, status });
-      });
+      const result = await scanReceipt(processed.dataUrl, (pct, status) =>
+        setScanProgress({ pct, status })
+      );
 
       setOcr(result);
-
-      // Pre-fill form
       setStoreName(result.storeName);
       setCategory(result.category);
       if (result.date) setDate(result.date);
-      if (result.time) setTime(result.time);
       setPaymentMethod(result.paymentMethod);
-      if (result.items.length > 0) {
-        setItems(result.items);
-      }
+      if (result.items.length > 0) setItems(result.items);
 
       setStep("details");
     } catch (err) {
       console.error("Scan failed:", err);
-      // Fall through to manual entry
+      setScanError(err instanceof Error ? err.message : "Scan failed");
       setStep("details");
     }
   }, []);
 
-  function addItem() {
-    setItems([...items, { name: "", quantity: 1, unitPrice: 0 }]);
-  }
-
-  function removeItem(i: number) {
-    setItems(items.filter((_, idx) => idx !== i));
-  }
-
   function updateItem(i: number, field: keyof ItemRow, value: string | number) {
-    const updated = [...items];
-    updated[i] = { ...updated[i], [field]: value };
-    setItems(updated);
+    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [field]: value } : it)));
   }
 
-  const total = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const total = items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
 
   function handleSubmit() {
     if (!storeName.trim()) return;
-    const dateTime = time ? `${date}T${time}:00` : `${date}T12:00:00`;
     const receipt: Receipt = {
       id: Date.now().toString(),
       storeName: storeName.trim(),
       storeLogoInitials: getInitials(storeName.trim()),
       storeColor: getStoreColor(storeName.trim()),
       category,
-      date: new Date(dateTime).toISOString(),
+      date: new Date(`${date}T12:00:00`).toISOString(),
       totalAmount: total || (ocr?.totalAmount ?? 0),
       currency: "AUD",
       items: items
@@ -137,290 +120,497 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
       paymentMethod,
       imageDataUrl,
       notes: "",
-      tags: [],
+      tags: tagInput
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
     };
     onAdd(receipt);
   }
 
-  const inputStyle = {
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 10,
-    color: "rgba(255,255,255,0.85)",
-    outline: "none",
-    padding: "10px 12px",
-    fontSize: 14,
-    width: "100%",
-  };
-
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)" }}
       onClick={step !== "scanning" ? onClose : undefined}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "oklch(20% 0.01 90 / 0.5)",
+        backdropFilter: "blur(4px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+        zIndex: 50,
+      }}
     >
       <div
-        className="w-full sm:max-w-lg max-h-[95vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl"
-        style={{
-          background: "rgba(13,11,24,0.97)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          boxShadow: "0 8px 64px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.1)",
-        }}
         onClick={(e) => e.stopPropagation()}
+        className="scrollbar-none"
+        style={{
+          background: "#fff",
+          width: 440,
+          maxWidth: "100%",
+          borderRadius: 20,
+          padding: 28,
+          boxShadow: "0 24px 60px rgba(20,20,30,0.25)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+          maxHeight: "85vh",
+          overflowY: "auto",
+          boxSizing: "border-box",
+          fontFamily: SANS,
+        }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
-          <h2 className="text-white font-semibold text-lg">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: T.text }}>
             {step === "photo" && "Add Receipt"}
             {step === "scanning" && "Scanning…"}
             {step === "details" && (ocr ? "Confirm Details" : "Add Receipt")}
-          </h2>
+          </h3>
           {step !== "scanning" && (
-            <button onClick={onClose} className="text-white/40 hover:text-white/80 transition-colors p-1 rounded-lg">
-              <X size={20} />
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 999,
+                background: "oklch(96% 0.005 90)",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 15,
+                color: T.label,
+              }}
+            >
+              ×
             </button>
           )}
         </div>
 
-        {/* ── STEP: PHOTO ───────────────────────────────────────── */}
+        {/* ── STEP: PHOTO ─────────────────────────────────────────── */}
         {step === "photo" && (
-          <div className="p-6 flex flex-col gap-4">
-            <p className="text-white/50 text-sm text-center mb-2">
-              Take or upload a photo — we'll scan it automatically
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <p style={{ margin: 0, fontSize: 13, color: T.soft, textAlign: "center" }}>
+              Take or upload a photo — we&apos;ll read it automatically
             </p>
 
-            <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleImageFile(e.target.files[0])} />
-
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              onChange={(e) => e.target.files?.[0] && handleImageFile(e.target.files[0])}
+            />
             <button
               onClick={() => cameraRef.current?.click()}
-              className="flex items-center justify-center gap-3 py-5 rounded-2xl transition-all"
-              style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", color: "#a5b4fc" }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                padding: "18px 0",
+                borderRadius: 12,
+                border: `1.5px dashed ${T.accent}`,
+                background: "transparent",
+                color: T.accent,
+                fontSize: 15,
+                fontWeight: 600,
+                fontFamily: "inherit",
+                cursor: "pointer",
+              }}
             >
-              <Camera size={22} />
-              <span className="font-medium">Take Photo</span>
+              <Camera size={20} />
+              Take Photo
             </button>
 
-            <input ref={fileRef} type="file" accept="image/*" className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleImageFile(e.target.files[0])} />
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => e.target.files?.[0] && handleImageFile(e.target.files[0])}
+            />
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center justify-center gap-3 py-4 rounded-2xl transition-all"
-              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)" }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                padding: "14px 0",
+                borderRadius: 12,
+                border: `1px solid ${T.border}`,
+                background: "#fff",
+                color: T.label,
+                fontSize: 14,
+                fontFamily: "inherit",
+                cursor: "pointer",
+              }}
             >
-              <Upload size={18} />
-              <span className="text-sm">Upload from Library</span>
+              <Upload size={16} />
+              Upload from Library
             </button>
 
-            <div className="flex items-center gap-3 my-1">
-              <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-              <span className="text-white/30 text-xs">or</span>
-              <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "2px 0" }}>
+              <div style={{ flex: 1, height: 1, background: T.border }} />
+              <span style={{ fontSize: 12, color: T.faint }}>or</span>
+              <div style={{ flex: 1, height: 1, background: T.border }} />
             </div>
 
-            <button onClick={() => setStep("details")} className="text-white/50 text-sm hover:text-white/70 transition-colors py-2">
+            <button
+              onClick={() => setStep("details")}
+              style={{
+                border: "none",
+                background: "none",
+                color: T.soft,
+                fontSize: 13,
+                fontFamily: "inherit",
+                cursor: "pointer",
+                padding: "4px 0",
+              }}
+            >
               Skip — enter details manually
             </button>
           </div>
         )}
 
-        {/* ── STEP: SCANNING ────────────────────────────────────── */}
+        {/* ── STEP: SCANNING ──────────────────────────────────────── */}
         {step === "scanning" && (
-          <div className="p-10 flex flex-col items-center gap-6">
-            {/* Receipt thumbnail with scan line animation */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 20,
+              padding: "24px 0",
+            }}
+          >
             {imageDataUrl && (
-              <div className="relative w-28 h-44 rounded-xl overflow-hidden flex-shrink-0"
-                style={{ border: "1px solid rgba(255,255,255,0.12)" }}>
-                <img src={imageDataUrl} alt="Receipt" className="w-full h-full object-cover" />
-                <div className="absolute inset-0" style={{ background: "rgba(8,8,15,0.45)" }} />
-                {/* Animated scan line */}
+              <div
+                style={{
+                  position: "relative",
+                  width: 112,
+                  height: 176,
+                  overflow: "hidden",
+                  border: `1px solid ${T.border}`,
+                  flexShrink: 0,
+                }}
+              >
+                <img
+                  src={imageDataUrl}
+                  alt="Receipt"
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
                 <div
-                  className="absolute left-0 right-0 h-0.5"
                   style={{
-                    background: "linear-gradient(90deg, transparent, #6366f1, #a78bfa, transparent)",
-                    boxShadow: "0 0 8px rgba(99,102,241,0.9)",
-                    animation: "scanline 1.8s ease-in-out infinite",
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    height: 2,
                     top: `${scanProgress.pct}%`,
+                    background: `linear-gradient(90deg, transparent, ${T.accent}, transparent)`,
+                    boxShadow: `0 0 8px ${T.accent}`,
                     transition: "top 0.4s ease",
                   }}
                 />
               </div>
             )}
 
-            {/* Progress bar */}
-            <div className="w-full max-w-xs flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-white/40 text-xs flex items-center gap-1.5">
-                  <Sparkles size={11} className="text-indigo-400" />
-                  Llama 4 Scout Vision
+            <div style={{ width: "100%", maxWidth: 280, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, color: T.soft }}>
+                  <Sparkles size={11} style={{ color: T.accent }} />
+                  Qwen 3.8 Vision
                 </span>
-                <span className="text-white/30 text-xs">{scanProgress.pct}%</span>
+                <span style={{ color: T.faint }}>{scanProgress.pct}%</span>
               </div>
-              <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <div style={{ height: 4, borderRadius: 999, background: "oklch(93% 0.005 90)", overflow: "hidden" }}>
                 <div
-                  className="h-full rounded-full transition-all duration-500"
                   style={{
+                    height: "100%",
                     width: `${scanProgress.pct}%`,
-                    background: scanProgress.pct === 100
-                      ? "#22c55e"
-                      : "linear-gradient(90deg, #6366f1, #a78bfa)",
-                    boxShadow: scanProgress.pct < 100 ? "0 0 6px rgba(99,102,241,0.7)" : "none",
+                    borderRadius: 999,
+                    background: scanProgress.pct === 100 ? "oklch(60% 0.15 145)" : T.accent,
+                    transition: "width 0.5s ease",
                   }}
                 />
               </div>
             </div>
 
-            <div className="flex items-center gap-2 text-white/50 text-sm">
-              <Loader2 size={14} className="animate-spin text-indigo-400" />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.soft }}>
+              <Loader2 size={14} className="animate-spin" style={{ color: T.accent }} />
               {scanProgress.status}
             </div>
-
-            <p className="text-white/20 text-xs text-center">
-              Reading your receipt with AI vision<br />Usually takes 3–5 seconds
-            </p>
           </div>
         )}
 
-        {/* ── STEP: DETAILS ─────────────────────────────────────── */}
+        {/* ── STEP: DETAILS ───────────────────────────────────────── */}
         {step === "details" && (
-          <div className="p-6 flex flex-col gap-5">
+          <>
+            {scanError && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: "oklch(95% 0.04 25)",
+                  color: "oklch(40% 0.12 25)",
+                  fontSize: 12,
+                }}
+              >
+                <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>Couldn&apos;t read the receipt — enter the details manually. ({scanError})</span>
+              </div>
+            )}
 
-            {/* OCR badge + image compression info */}
             {ocr && (
-              <div className="flex items-center justify-between rounded-xl px-4 py-3"
-                style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)" }}>
-                <div className="flex items-center gap-2">
-                  <Sparkles size={14} className="text-indigo-400" />
-                  <span className="text-indigo-300 text-xs font-medium">Receipt auto-scanned</span>
-                </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  background: "oklch(96% 0.02 255)",
+                  fontSize: 12,
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 6, color: T.accent, fontWeight: 600 }}>
+                  <Sparkles size={13} />
+                  Receipt auto-scanned
+                </span>
                 {compressedKB && (
-                  <span className="text-white/30 text-xs">
+                  <span style={{ color: T.faint }}>
                     {compressedKB.original}KB → {compressedKB.compressed}KB
                   </span>
                 )}
               </div>
             )}
 
-            {/* Preview photo */}
             {imageDataUrl && (
-              <div className="relative">
-                <img src={imageDataUrl} alt="Receipt" className="w-full rounded-xl max-h-36 object-cover" />
-                <button onClick={() => setImageDataUrl(undefined)}
-                  className="absolute top-2 right-2 p-1.5 rounded-lg"
-                  style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)" }}>
-                  <Trash2 size={14} className="text-white/70" />
+              <div style={{ position: "relative" }}>
+                <img
+                  src={imageDataUrl}
+                  alt="Receipt"
+                  style={{ width: "100%", borderRadius: 10, maxHeight: 140, objectFit: "cover" }}
+                />
+                <button
+                  onClick={() => setImageDataUrl(undefined)}
+                  aria-label="Remove photo"
+                  style={{
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    padding: 6,
+                    borderRadius: 8,
+                    background: "rgba(255,255,255,0.9)",
+                    border: `1px solid ${T.border}`,
+                    cursor: "pointer",
+                    lineHeight: 0,
+                  }}
+                >
+                  <Trash2 size={13} style={{ color: T.muted }} />
                 </button>
               </div>
             )}
 
-            {/* Store name */}
             <div>
-              <div className="flex items-center gap-2 mb-2">
-                <label className="text-white/50 text-xs uppercase tracking-widest">Store Name *</label>
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>
+                Store name
                 {ocr && <ConfidenceBadge score={ocr.confidence.storeName} />}
-              </div>
-              <input style={inputStyle} placeholder="e.g. Woolworths" value={storeName}
-                onChange={(e) => setStoreName(e.target.value)} />
+              </label>
+              <input
+                type="text"
+                value={storeName}
+                onChange={(e) => setStoreName(e.target.value)}
+                placeholder="e.g. Woolworths"
+                style={fieldStyle}
+              />
             </div>
 
-            {/* Category + Date */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-white/50 text-xs uppercase tracking-widest mb-2 block">Category</label>
-                <select style={{ ...inputStyle, width: "100%" }} value={category}
-                  onChange={(e) => setCategory(e.target.value as ProductCategory)}>
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Category</label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as ProductCategory)}
+                  style={fieldStyle}
+                >
                   {CATEGORIES.map((c) => (
-                    <option key={c} value={c} style={{ background: "#0d0b18" }}>{c}</option>
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
                   ))}
                 </select>
               </div>
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <label className="text-white/50 text-xs uppercase tracking-widest">Date</label>
+              <div style={{ flex: 1 }}>
+                <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>
+                  Date
                   {ocr && <ConfidenceBadge score={ocr.confidence.date} />}
-                </div>
-                <input type="date" style={inputStyle} value={date}
-                  onChange={(e) => setDate(e.target.value)} />
+                </label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  style={fieldStyle}
+                />
               </div>
             </div>
 
-            {/* Time + Payment */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-white/50 text-xs uppercase tracking-widest mb-2 block">Time</label>
-                <input type="time" style={inputStyle} value={time}
-                  onChange={(e) => setTime(e.target.value)} />
-              </div>
-              <div>
-                <label className="text-white/50 text-xs uppercase tracking-widest mb-2 block">Payment</label>
-                <div className="flex gap-1.5">
-                  {(["card", "cash", "digital"] as const).map((pm) => (
-                    <button key={pm} onClick={() => setPaymentMethod(pm)}
-                      className="flex-1 py-2 rounded-xl text-xs capitalize transition-all"
-                      style={{
-                        background: paymentMethod === pm ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)",
-                        border: `1px solid ${paymentMethod === pm ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.08)"}`,
-                        color: paymentMethod === pm ? "#a5b4fc" : "rgba(255,255,255,0.4)",
-                      }}>
-                      {pm}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Items */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <label className="text-white/50 text-xs uppercase tracking-widest">Items</label>
-                  {ocr && <ConfidenceBadge score={ocr.confidence.items} />}
-                </div>
-                <button onClick={addItem} className="flex items-center gap-1 text-indigo-400 text-xs hover:text-indigo-300 transition-colors">
-                  <Plus size={12} /> Add
-                </button>
-              </div>
-              <div className="space-y-2">
-                {items.map((item, i) => (
-                  <div key={i} className="flex gap-2">
-                    <input style={{ ...inputStyle, flex: 3 }} placeholder="Item name" value={item.name}
-                      onChange={(e) => updateItem(i, "name", e.target.value)} />
-                    <input style={{ ...inputStyle, flex: 1 }} type="number" placeholder="Qty" min={1}
-                      value={item.quantity}
-                      onChange={(e) => updateItem(i, "quantity", parseInt(e.target.value) || 1)} />
-                    <input style={{ ...inputStyle, flex: 1.5 }} type="number" placeholder="$" step="0.01" min={0}
-                      value={item.unitPrice || ""}
-                      onChange={(e) => updateItem(i, "unitPrice", parseFloat(e.target.value) || 0)} />
-                    {items.length > 1 && (
-                      <button onClick={() => removeItem(i)} className="text-white/25 hover:text-red-400 transition-colors px-1">
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
+              <label style={labelStyle}>Payment</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {(["card", "digital", "cash"] as const).map((pm) => (
+                  <button
+                    key={pm}
+                    onClick={() => setPaymentMethod(pm)}
+                    style={{ ...seg(paymentMethod === pm), textTransform: "capitalize" }}
+                  >
+                    {pm}
+                  </button>
                 ))}
               </div>
             </div>
 
-            {/* Total */}
-            <div className="flex items-center justify-between py-3 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
-              <div className="flex items-center gap-2">
-                <span className="text-white/50 text-sm">Total</span>
+            <div>
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                Items
+                {ocr && <ConfidenceBadge score={ocr.confidence.items} />}
+              </label>
+              {items.map((it, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                  <input
+                    type="text"
+                    value={it.name}
+                    onChange={(e) => updateItem(i, "name", e.target.value)}
+                    placeholder="Item name"
+                    style={{ ...fieldStyle, flex: 1, padding: "9px 12px" }}
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    value={it.quantity}
+                    onChange={(e) => updateItem(i, "quantity", parseInt(e.target.value) || 1)}
+                    aria-label="Quantity"
+                    style={{ ...fieldStyle, width: 58, padding: "9px 10px" }}
+                  />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={it.unitPrice || ""}
+                    onChange={(e) => updateItem(i, "unitPrice", parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    aria-label="Unit price"
+                    style={{ ...fieldStyle, width: 82, padding: "9px 10px" }}
+                  />
+                  {items.length > 1 && (
+                    <button
+                      onClick={() => setItems(items.filter((_, idx) => idx !== i))}
+                      aria-label="Remove item"
+                      style={{
+                        width: 32,
+                        height: 32,
+                        flexShrink: 0,
+                        borderRadius: 8,
+                        border: `1px solid ${T.border}`,
+                        background: "#fff",
+                        cursor: "pointer",
+                        color: T.soft,
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={() => setItems([...items, { name: "", quantity: 1, unitPrice: 0 }])}
+                style={{
+                  border: "none",
+                  background: "none",
+                  color: T.accent,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  padding: "4px 0",
+                  fontFamily: "inherit",
+                }}
+              >
+                + Add item
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                paddingTop: 8,
+                borderTop: "1px solid oklch(93% 0.005 90)",
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.muted }}>
+                Total
                 {ocr && <ConfidenceBadge score={ocr.confidence.total} />}
-              </div>
-              <span className="text-white font-bold">
-                {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(
-                  total || ocr?.totalAmount || 0
-                )}
+              </span>
+              <span style={{ fontSize: 17, fontWeight: 700, color: T.text }}>
+                {fmtMoney(total || ocr?.totalAmount || 0)}
               </span>
             </div>
 
-            {/* Submit */}
-            <button onClick={handleSubmit} disabled={!storeName.trim()}
-              className="w-full py-3.5 rounded-2xl font-semibold text-sm transition-all disabled:opacity-40"
-              style={{ background: "rgba(99,102,241,0.85)", color: "white", border: "1px solid rgba(99,102,241,0.5)" }}>
-              Save Receipt
-            </button>
-          </div>
+            <div>
+              <label style={labelStyle}>Tags (optional)</label>
+              <input
+                type="text"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                placeholder="e.g. weekly-shop, reimbursable"
+                style={fieldStyle}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+              <button
+                onClick={onClose}
+                style={{
+                  border: `1px solid ${T.border}`,
+                  background: "#fff",
+                  borderRadius: 10,
+                  padding: "11px 20px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  color: T.label,
+                  fontFamily: "inherit",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={!storeName.trim()}
+                style={{
+                  border: "none",
+                  background: T.accent,
+                  color: "#fff",
+                  borderRadius: 10,
+                  padding: "11px 22px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: storeName.trim() ? "pointer" : "not-allowed",
+                  opacity: storeName.trim() ? 1 : 0.45,
+                  fontFamily: "inherit",
+                }}
+              >
+                Save Receipt
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>
