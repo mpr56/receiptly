@@ -5,8 +5,8 @@
  * - Compresses to JPEG targeting ~150KB
  */
 
-const RECEIPT_ASPECT = 3 / 7; // width / height — typical receipt
-const MAX_HEIGHT = 1800;        // px — enough for Tesseract, not overkill
+const RECEIPT_ASPECT = 3 / 7; // width / height, typical receipt
+const MAX_HEIGHT = 1800;        // px, enough for Tesseract, not overkill
 const JPEG_QUALITY = 0.55;      // ~150KB for a 1080px-wide greyscale JPEG
 
 export interface ProcessedImage {
@@ -47,7 +47,7 @@ export async function processReceiptImage(file: File): Promise<ProcessedImage> {
 
       const srcRatio = srcW / srcH;
       if (srcRatio > 0.8) {
-        // Too wide (landscape or square) — crop to receipt column from center
+        // Too wide (landscape or square), crop to receipt column from center
         cropW = Math.round(srcH * RECEIPT_ASPECT);
         cropX = Math.round((srcW - cropW) / 2);
       }
@@ -68,7 +68,7 @@ export async function processReceiptImage(file: File): Promise<ProcessedImage> {
       // Greyscale
       toGreyscale(ctx, outW, outH);
 
-      // Slight contrast boost — helps OCR on faded thermal receipts
+      // Slight contrast boost, helps OCR on faded thermal receipts
       ctx.filter = "contrast(1.15) brightness(1.05)";
       ctx.drawImage(canvas, 0, 0);
       ctx.filter = "none";

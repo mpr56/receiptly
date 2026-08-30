@@ -1,26 +1,87 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Receipt } from "@/types";
-import { T, MONO, SANS, RECEIPT_CLIP, catStyle, fmtMoney } from "./theme";
+import {
+  T,
+  MONO,
+  SANS,
+  RECEIPT_CLIP,
+  catStyle,
+  fmtMoney,
+  fmtAmt,
+  gstOf,
+  orderNo,
+  authCode,
+  cardTail,
+  terminalNo,
+  lane,
+} from "./theme";
+import { DashRule, DoubleRule, Barcode, MetaLine, Stamp } from "./paper";
 
 interface Props {
   receipt: Receipt;
   onClose: () => void;
 }
 
+/** How the tender block reads depends on how it was paid, cash receipts show
+ *  change due, cards show an auth trace, wallets show a device token. */
+function tenderLines(r: Receipt): [string, string][] {
+  const auth = authCode(r.id);
+  if (r.paymentMethod === "cash") {
+    const tendered = Math.ceil(r.totalAmount / 5) * 5;
+    return [
+      ["CASH TENDERED", fmtAmt(tendered)],
+      ["CHANGE DUE", fmtAmt(tendered - r.totalAmount)],
+      ["DRAWER", `NO. ${terminalNo(r.id)}`],
+    ];
+  }
+  if (r.paymentMethod === "digital") {
+    return [
+      ["WALLET", "DIGITAL / NFC"],
+      ["DEVICE ID", `**** ${cardTail(r.id)}`],
+      ["AUTH CODE", auth],
+    ];
+  }
+  return [
+    ["CARD #", `**** **** **** ${cardTail(r.id)}`],
+    ["AUTH CODE", auth],
+    ["CARDHOLDER", "MANAV"],
+  ];
+}
+
 export default function ReceiptModal({ receipt, onClose }: Props) {
   const cs = catStyle(receipt.category);
-  const dateLabel = new Date(receipt.date)
-    .toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const d = new Date(receipt.date);
+  const longDate = d
+    .toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
     .toUpperCase();
+  const clock = d.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+  const { ex, gst } = gstOf(receipt.totalAmount);
+  const unitCount = receipt.items.reduce((n, i) => n + i.quantity, 0);
 
   return (
     <div
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Receipt from ${receipt.storeName}`}
       style={{
         position: "fixed",
         inset: 0,
-        background: "oklch(20% 0.01 90 / 0.5)",
+        background: "oklch(20% 0.01 90 / 0.55)",
         backdropFilter: "blur(4px)",
         display: "flex",
         alignItems: "center",
@@ -31,183 +92,293 @@ export default function ReceiptModal({ receipt, onClose }: Props) {
     >
       <div onClick={(e) => e.stopPropagation()} style={{ position: "relative" }}>
         <button
+          ref={closeRef}
           onClick={onClose}
-          aria-label="Close"
+          aria-label="Close receipt"
+          className="paper-btn"
           style={{
             position: "absolute",
-            top: -14,
-            right: -14,
-            width: 32,
-            height: 32,
-            borderRadius: 999,
-            background: "#fff",
-            border: `1px solid ${T.border}`,
+            top: -16,
+            right: -16,
+            width: 34,
+            height: 34,
+            borderRadius: 0,
+            background: T.paper,
+            borderWidth: 1,
+            borderStyle: "solid",
+            borderColor: T.ink,
             cursor: "pointer",
             fontSize: 16,
-            color: T.label,
-            zIndex: 2,
+            fontFamily: MONO,
+            color: T.ink,
+            zIndex: 3,
           }}
         >
           ×
         </button>
 
-        <div className="scrollbar-none" style={{ maxHeight: "86vh", overflowY: "auto" }}>
+        <div className="scrollbar-none" style={{ maxHeight: "88vh", overflowY: "auto" }}>
           <div
+            className="feeding"
             style={{
-              background: "oklch(99% 0.002 90)",
-              width: 360,
+              position: "relative",
+              width: 372,
               maxWidth: "100%",
-              padding: "36px 30px 30px",
-              boxShadow: "0 24px 60px rgba(20,20,30,0.3)",
-              transform: "rotate(-0.5deg)",
-              fontFamily: MONO,
-              color: "#1c1c1c",
-              clipPath: RECEIPT_CLIP,
+              filter: "drop-shadow(0 24px 44px rgba(20,20,30,0.34))",
             }}
           >
-            <div style={{ textAlign: "center" }}>
+            {/* The printer head, chasing the sheet as it feeds out. */}
+            <div
+              aria-hidden
+              className="print-head"
+              style={{
+                position: "absolute",
+                left: -4,
+                right: -4,
+                height: 3,
+                background: "rgba(0,0,0,0.5)",
+                boxShadow: "0 0 12px rgba(0,0,0,0.4)",
+                zIndex: 2,
+              }}
+            />
+
+            <div
+              className="paper-crumple"
+              style={{
+                padding: "34px 28px 26px",
+                transform: "rotate(-0.5deg)",
+                fontFamily: MONO,
+                color: "#1c1c1c",
+                clipPath: RECEIPT_CLIP,
+              }}
+            >
+              {/* -- Head ----------------------------------------------- */}
+              <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: 26,
+                    fontWeight: 800,
+                    letterSpacing: "0.02em",
+                    textTransform: "uppercase",
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {receipt.storeName}
+                </div>
+                <div style={{ marginTop: 7 }}>
+                  <MetaLine size={10} color="#6b6b6b" align="center">
+                    {receipt.category}
+                  </MetaLine>
+                </div>
+                <div style={{ marginTop: 14 }}>
+                  <MetaLine size={9} color="#8a8a8a" align="center">
+                    RECEIPTLY POS · TERM {terminalNo(receipt.id)} · LANE {lane(receipt.id)}
+                  </MetaLine>
+                </div>
+              </div>
+
+              <DashRule margin="18px 0 12px" />
+
+              <MetaLine size={10} color="#4a4a4a">
+                ORDER {orderNo(receipt.id)} FOR MANAV
+              </MetaLine>
+              <MetaLine size={10} color="#4a4a4a">
+                {longDate} · {clock}
+              </MetaLine>
+
+              <DashRule margin="12px 0 8px" />
+
+              {/* -- Items ---------------------------------------------- */}
               <div
                 style={{
-                  fontSize: 19,
-                  fontWeight: 800,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
+                  display: "grid",
+                  gridTemplateColumns: "26px 1fr auto",
+                  gap: "0 10px",
+                  fontSize: 10,
+                  letterSpacing: "0.14em",
+                  color: "#8a8a8a",
+                  paddingBottom: 6,
                 }}
               >
-                {receipt.storeName}
+                <span>QTY</span>
+                <span>ITEM</span>
+                <span style={{ textAlign: "right" }}>AMT</span>
               </div>
-              <div style={{ fontSize: 11, color: "#777", marginTop: 6, letterSpacing: "0.08em" }}>
-                {dateLabel}
-              </div>
-            </div>
 
-            <Rule margin="22px 0 18px" />
+              {receipt.items.length === 0 && (
+                <MetaLine size={10} color="#9a9a9a" align="center">
+                  * NO LINE ITEMS RECORDED *
+                </MetaLine>
+              )}
 
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
-              <span style={{ fontSize: 11, letterSpacing: "0.06em", color: "#777" }}>TOTAL PAID</span>
-              <span
-                style={{
-                  background: cs.bg,
-                  color: cs.text,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: "3px 9px",
-                  borderRadius: 999,
-                  fontFamily: SANS,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {receipt.category}
-              </span>
-            </div>
-            <div style={{ fontSize: 30, fontWeight: 800, marginTop: 4 }}>
-              {fmtMoney(receipt.totalAmount)}
-            </div>
-            <div style={{ fontSize: 12, color: "#777", marginTop: 6 }}>
-              Paid by {receipt.paymentMethod}
-            </div>
+              {receipt.items.map((it, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "26px 1fr auto",
+                    gap: "0 10px",
+                    fontSize: 12.5,
+                    lineHeight: 1.45,
+                    padding: "4px 0",
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  <span style={{ color: "#6b6b6b", fontVariantNumeric: "tabular-nums" }}>
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span style={{ textTransform: "uppercase" }}>
+                    {it.name}
+                    {it.quantity > 1 && (
+                      <span style={{ color: "#8a8a8a" }}>
+                        {" "}
+                        @ {it.quantity} × {fmtAmt(it.unitPrice)}
+                      </span>
+                    )}
+                  </span>
+                  <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                    {fmtAmt(it.totalPrice)}
+                  </span>
+                </div>
+              ))}
 
-            <Rule margin="20px 0 14px" />
+              <DashRule margin="10px 0" />
 
-            <div style={{ fontSize: 11, letterSpacing: "0.06em", color: "#777", marginBottom: 10 }}>
-              ITEMS
-            </div>
-            {receipt.items.map((it, i) => (
+              {/* -- Totals --------------------------------------------- */}
+              <Total label="ITEM COUNT" value={String(unitCount)} />
+              <Total label="SUBTOTAL (EX GST)" value={fmtAmt(ex)} />
+              <Total label="GST 10%" value={fmtAmt(gst)} />
+              <DoubleRule margin="8px 0" />
               <div
-                key={i}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  gap: 12,
-                  padding: "7px 0",
-                  borderBottom: "1px dashed rgba(0,0,0,0.12)",
-                  fontSize: 14,
+                  alignItems: "baseline",
+                  fontSize: 17,
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
                 }}
               >
-                <span>
-                  {it.name}
-                  {it.quantity > 1 && (
-                    <span style={{ color: "#999", fontSize: 12 }}>
-                      {" "}
-                      {it.quantity} × {fmtMoney(it.unitPrice)}
-                    </span>
-                  )}
-                </span>
-                <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>
-                  {fmtMoney(it.totalPrice)}
+                <span>TOTAL</span>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                  {fmtMoney(receipt.totalAmount)}
                 </span>
               </div>
-            ))}
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                fontWeight: 800,
-                fontSize: 15,
-                marginTop: 14,
-                paddingTop: 12,
-                borderTop: "1px dashed rgba(0,0,0,0.25)",
-              }}
-            >
-              <span>TOTAL</span>
-              <span>{fmtMoney(receipt.totalAmount)}</span>
-            </div>
+              <DashRule margin="14px 0 10px" />
 
-            {receipt.tags.length > 0 && (
-              <div style={{ textAlign: "center", marginTop: 16, display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
-                {receipt.tags.map((tag) => (
-                  <span
-                    key={tag}
+              {/* -- Tender --------------------------------------------- */}
+              {tenderLines(receipt).map(([k, v]) => (
+                <div
+                  key={k}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    fontSize: 10,
+                    letterSpacing: "0.12em",
+                    color: "#4a4a4a",
+                    lineHeight: 1.9,
+                  }}
+                >
+                  <span>{k}:</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>{v}</span>
+                </div>
+              ))}
+
+              <div style={{ marginTop: 6 }}>
+                <MetaLine size={10} color="#4a4a4a">
+                  *** APPROVED *** NO SIGNATURE REQUIRED
+                </MetaLine>
+              </div>
+
+              {/* -- Stamp + tags --------------------------------------- */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  marginTop: 14,
+                  minHeight: 40,
+                }}
+              >
+                <Stamp text="PAID" color={cs.text} rotate={-11} />
+                {receipt.tags.length > 0 && (
+                  <div
                     style={{
-                      display: "inline-block",
-                      border: "1px solid rgba(0,0,0,0.15)",
-                      borderRadius: 999,
-                      padding: "4px 12px",
-                      fontSize: 11,
-                      color: "#555",
-                      fontFamily: SANS,
+                      display: "flex",
+                      gap: 5,
+                      flexWrap: "wrap",
+                      justifyContent: "flex-end",
+                      flex: 1,
                     }}
                   >
-                    {tag}
-                  </span>
-                ))}
+                    {receipt.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        style={{
+                          fontFamily: SANS,
+                          fontSize: 10,
+                          color: "#5a5a5a",
+                          border: "1px solid rgba(0,0,0,0.2)",
+                          padding: "2px 7px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
 
-            {receipt.imageDataUrl && (
-              <img
-                src={receipt.imageDataUrl}
-                alt="Scanned receipt"
-                style={{
-                  width: "100%",
-                  marginTop: 18,
-                  maxHeight: 150,
-                  objectFit: "cover",
-                  filter: "grayscale(0.35) contrast(1.05)",
-                  border: "1px solid rgba(0,0,0,0.1)",
-                }}
-              />
-            )}
+              {receipt.imageDataUrl && (
+                <>
+                  <DashRule margin="14px 0 10px" />
+                  <MetaLine size={9} color="#8a8a8a">
+                    SCANNED ORIGINAL
+                  </MetaLine>
+                  <img
+                    src={receipt.imageDataUrl}
+                    alt={`Photo of the original receipt from ${receipt.storeName}`}
+                    style={{
+                      width: "100%",
+                      marginTop: 8,
+                      maxHeight: 150,
+                      objectFit: "cover",
+                      filter: "grayscale(0.4) contrast(1.08)",
+                      border: "1px solid rgba(0,0,0,0.14)",
+                    }}
+                  />
+                </>
+              )}
 
-            <div
-              style={{
-                height: 36,
-                marginTop: 22,
-                background:
-                  "repeating-linear-gradient(90deg, #1a1a1a 0 2px, transparent 2px 3px, #1a1a1a 5px 6px, transparent 6px 9px, #1a1a1a 9px 12px, transparent 12px 14px)",
-              }}
-            />
-            <div
-              style={{
-                textAlign: "center",
-                fontSize: 9,
-                color: "#999",
-                letterSpacing: "0.06em",
-                marginTop: 8,
-              }}
-            >
-              receiptly.app/{receipt.id}
+              {/* -- Foot ----------------------------------------------- */}
+              <div style={{ marginTop: 22, textAlign: "center" }}>
+                <MetaLine size={11} color="#2a2a2a" align="center">
+                  THANK YOU FOR VISITING!
+                </MetaLine>
+                <div style={{ marginTop: 4 }}>
+                  <MetaLine size={9} color="#9a9a9a" align="center">
+                    KEEP THIS RECEIPT FOR WARRANTY · NO REFUNDS AFTER 30 DAYS
+                  </MetaLine>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 16 }}>
+                <Barcode
+                  value={receipt.id}
+                  height={40}
+                  caption={`RECEIPTLY.APP/${receipt.id}`}
+                />
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <MetaLine size={8} color="#a5a5a5" align="center">
+                  ★ ★ ★ CUSTOMER COPY ★ ★ ★
+                </MetaLine>
+              </div>
             </div>
           </div>
         </div>
@@ -216,6 +387,21 @@ export default function ReceiptModal({ receipt, onClose }: Props) {
   );
 }
 
-function Rule({ margin }: { margin: string }) {
-  return <div style={{ borderTop: "1px dashed rgba(0,0,0,0.25)", margin }} />;
+function Total({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 10,
+        fontSize: 11,
+        letterSpacing: "0.1em",
+        color: "#3a3a3a",
+        lineHeight: 2,
+      }}
+    >
+      <span>{label}:</span>
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>{value}</span>
+    </div>
+  );
 }

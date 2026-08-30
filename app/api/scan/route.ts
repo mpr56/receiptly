@@ -5,18 +5,18 @@ function getGroqClient() {
   return new Groq({ apiKey: process.env.GROQ_API_KEY ?? "placeholder" });
 }
 
-const SYSTEM_PROMPT = `You are a receipt parser. Analyse the receipt image and return ONLY valid JSON — no markdown, no backticks, no explanation.
+const SYSTEM_PROMPT = `You are a receipt parser. Analyse the receipt image and return ONLY valid JSON, no markdown, no backticks, no explanation.
 
 Return this exact structure:
 {
-  "storeName": "string — business name only in title case, no address or ABN",
-  "date": "string — YYYY-MM-DD format, or empty string if not found",
-  "time": "string — HH:MM in 24hr format, or empty string if not found",
+  "storeName": "string, business name only in title case, no address or ABN",
+  "date": "string, YYYY-MM-DD format, or empty string if not found",
+  "time": "string, HH:MM in 24hr format, or empty string if not found",
   "totalAmount": number,
   "paymentMethod": "card" | "cash" | "digital",
   "items": [
     {
-      "name": "string — clean item name, no asterisks or special chars",
+      "name": "string, clean item name, no asterisks or special chars",
       "quantity": number,
       "unitPrice": number
     }
@@ -31,7 +31,7 @@ Return this exact structure:
 
 Rules:
 - storeName: business name only. Fix OCR noise (e.g. "ALEX & C0" → "Alex & Co", "Adid4s" → "Adidas")
-- totalAmount: use TOTAL or AMOUNT PAID line — after discounts and surcharges, not subtotal
+- totalAmount: use TOTAL or AMOUNT PAID line, after discounts and surcharges, not subtotal
 - items: purchasable line items only. Exclude surcharges, GST lines, service charges, subtotals, payment lines
 - paymentMethod: "card" for eftpos/visa/mastercard/tap/zeller, "digital" for Apple Pay/Google Pay/PayPal, "cash" for cash
 - quantities: use QTY column if present, default to 1

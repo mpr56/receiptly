@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Receipt, ProductCategory } from "@/types";
 import { CATEGORIES, getStoreColor, getInitials } from "@/lib/data";
 import { processReceiptImage } from "@/lib/imageProcessor";
 import { scanReceipt, OCRResult } from "@/lib/ocr";
-import { T, SANS, seg, fieldStyle, labelStyle, fmtMoney } from "./theme";
-import { Camera, Upload, Trash2, CheckCircle, AlertCircle, Loader2, Sparkles } from "lucide-react";
+import { T, MONO, seg, fieldStyle, labelStyle, fmtMoney, fmtAmt, gstOf } from "./theme";
+import { DashRule, DoubleRule, DotRow, MetaLine, PerfLine } from "./paper";
+import { Camera, Upload, Trash2, AlertCircle, Sparkles } from "lucide-react";
 
 interface Props {
   onAdd: (receipt: Receipt) => void;
@@ -21,26 +22,55 @@ interface ItemRow {
 
 type Step = "photo" | "scanning" | "details";
 
+/** Printed confidence mark, the OCR's own margin note next to a field. */
 function ConfidenceBadge({ score }: { score: number }) {
   if (score <= 0) return null;
   const high = score >= 0.75;
   return (
     <span
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 10,
-        padding: "2px 7px",
-        borderRadius: 999,
-        fontFamily: SANS,
-        background: high ? "oklch(94% 0.05 145)" : "oklch(94% 0.06 85)",
-        color: high ? "oklch(38% 0.09 145)" : "oklch(40% 0.1 75)",
+        fontFamily: MONO,
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.1em",
+        color: high ? "oklch(38% 0.09 145)" : "oklch(40% 0.12 60)",
       }}
     >
-      {high ? <CheckCircle size={9} /> : <AlertCircle size={9} />}
-      {high ? "Auto-detected" : "Check this"}
+      {high ? "[AUTO]" : "[CHECK]"}
     </span>
+  );
+}
+
+/** A thermal-printer progress readout: `[████░░░░] 62%`. */
+function BlockMeter({ pct }: { pct: number }) {
+  const BLOCKS = 22;
+  const filled = Math.max(0, Math.min(BLOCKS, Math.round((pct / 100) * BLOCKS)));
+  return (
+    <div
+      role="progressbar"
+      aria-valuenow={Math.round(pct)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label="Scan progress"
+      style={{
+        fontFamily: MONO,
+        fontSize: 13,
+        letterSpacing: "0.02em",
+        color: T.ink,
+        display: "flex",
+        gap: 10,
+        alignItems: "baseline",
+        justifyContent: "center",
+      }}
+    >
+      <span aria-hidden style={{ whiteSpace: "nowrap" }}>
+        [{"█".repeat(filled)}
+        <span style={{ color: T.line }}>{"░".repeat(BLOCKS - filled)}</span>]
+      </span>
+      <span style={{ fontVariantNumeric: "tabular-nums", color: T.soft, fontSize: 11 }}>
+        {Math.round(pct)}%
+      </span>
+    </div>
   );
 }
 
@@ -61,6 +91,15 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+
+  // Escape closes, except mid-scan where there is a request in flight.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && step !== "scanning") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [step, onClose]);
 
   const handleImageFile = useCallback(async (file: File) => {
     setStep("scanning");
@@ -97,6 +136,8 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
   }
 
   const total = items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
+  const effectiveTotal = total || ocr?.totalAmount || 0;
+  const { ex, gst } = gstOf(effectiveTotal);
 
   function handleSubmit() {
     if (!storeName.trim()) return;
@@ -128,58 +169,82 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
     onAdd(receipt);
   }
 
+  const heading =
+    step === "photo" ? "New Entry" : step === "scanning" ? "Scanning" : ocr ? "Confirm Entry" : "Manual Entry";
+
   return (
     <div
       onClick={step !== "scanning" ? onClose : undefined}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add a receipt"
       style={{
         position: "fixed",
         inset: 0,
-        background: "oklch(20% 0.01 90 / 0.5)",
+        background: "oklch(20% 0.01 90 / 0.55)",
         backdropFilter: "blur(4px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 24,
+        padding: 20,
         zIndex: 50,
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="scrollbar-none"
+        className="scrollbar-none paper"
         style={{
-          background: "#fff",
-          width: 440,
+          width: 430,
           maxWidth: "100%",
-          borderRadius: 20,
-          padding: 28,
-          boxShadow: "0 24px 60px rgba(20,20,30,0.25)",
+          borderRadius: 0,
+          padding: "24px 26px 22px",
+          boxShadow: "10px 10px 0 rgba(20,20,30,0.16), 0 24px 60px rgba(20,20,30,0.28)",
           display: "flex",
           flexDirection: "column",
-          gap: 16,
-          maxHeight: "85vh",
+          maxHeight: "88vh",
           overflowY: "auto",
           boxSizing: "border-box",
-          fontFamily: SANS,
+          fontFamily: MONO,
+          color: T.ink,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: T.text }}>
-            {step === "photo" && "Add Receipt"}
-            {step === "scanning" && "Scanning…"}
-            {step === "details" && (ocr ? "Confirm Details" : "Add Receipt")}
-          </h3>
+        {/* -- Slip head ---------------------------------------------- */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 19,
+                fontWeight: 800,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+              }}
+            >
+              {heading}
+            </h3>
+            <div style={{ marginTop: 6 }}>
+              <MetaLine size={9} color={T.faint}>
+                RECEIPTLY POS · ENTRY SLIP · STEP {step === "photo" ? "1" : step === "scanning" ? "2" : "3"} OF 3
+              </MetaLine>
+            </div>
+          </div>
           {step !== "scanning" && (
             <button
               onClick={onClose}
               aria-label="Close"
+              className="paper-btn"
               style={{
                 width: 30,
                 height: 30,
-                borderRadius: 999,
-                background: "oklch(96% 0.005 90)",
-                border: "none",
+                flexShrink: 0,
+                borderRadius: 0,
+                background: "transparent",
+                borderWidth: 1,
+                borderStyle: "solid",
+                borderColor: T.line,
                 cursor: "pointer",
                 fontSize: 15,
+                fontFamily: MONO,
                 color: T.label,
               }}
             >
@@ -188,12 +253,14 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
           )}
         </div>
 
-        {/* ── STEP: PHOTO ─────────────────────────────────────────── */}
+        <DashRule margin="16px 0" />
+
+        {/* -- STEP: PHOTO -------------------------------------------- */}
         {step === "photo" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <p style={{ margin: 0, fontSize: 13, color: T.soft, textAlign: "center" }}>
-              Take or upload a photo and we&apos;ll read it automatically
-            </p>
+            <MetaLine size={10} color={T.soft} align="center">
+              PRESENT RECEIPT TO SCANNER
+            </MetaLine>
 
             <input
               ref={cameraRef}
@@ -205,24 +272,30 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
             />
             <button
               onClick={() => cameraRef.current?.click()}
+              className="paper-btn"
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 10,
-                padding: "18px 0",
-                borderRadius: 12,
-                border: `1.5px dashed ${T.accent}`,
+                padding: "20px 0",
+                minHeight: 60,
+                borderRadius: 0,
+                borderWidth: 1.5,
+                borderStyle: "dashed",
+                borderColor: T.ink,
                 background: "transparent",
-                color: T.accent,
-                fontSize: 15,
-                fontWeight: 600,
-                fontFamily: "inherit",
+                color: T.ink,
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                fontFamily: MONO,
                 cursor: "pointer",
               }}
             >
-              <Camera size={20} />
-              Take Photo
+              <Camera size={17} aria-hidden />
+              Capture
             </button>
 
             <input
@@ -234,30 +307,32 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
             />
             <button
               onClick={() => fileRef.current?.click()}
+              className="paper-btn"
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 10,
                 padding: "14px 0",
-                borderRadius: 12,
-                border: `1px solid ${T.border}`,
-                background: "#fff",
+                minHeight: 48,
+                borderRadius: 0,
+                borderWidth: 1,
+                borderStyle: "solid",
+                borderColor: T.line,
+                background: "transparent",
                 color: T.label,
-                fontSize: 14,
-                fontFamily: "inherit",
+                fontSize: 12,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                fontFamily: MONO,
                 cursor: "pointer",
               }}
             >
-              <Upload size={16} />
-              Upload from Library
+              <Upload size={15} aria-hidden />
+              Upload From Library
             </button>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "2px 0" }}>
-              <div style={{ flex: 1, height: 1, background: T.border }} />
-              <span style={{ fontSize: 12, color: T.faint }}>or</span>
-              <div style={{ flex: 1, height: 1, background: T.border }} />
-            </div>
+            <PerfLine margin="6px 0" label="OR" />
 
             <button
               onClick={() => setStep("details")}
@@ -265,18 +340,21 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                 border: "none",
                 background: "none",
                 color: T.soft,
-                fontSize: 13,
-                fontFamily: "inherit",
+                fontSize: 11,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                fontFamily: MONO,
                 cursor: "pointer",
-                padding: "4px 0",
+                padding: "10px 0",
+                minHeight: 44,
               }}
             >
-              Skip and enter details manually
+              Key In Manually →
             </button>
           </div>
         )}
 
-        {/* ── STEP: SCANNING ──────────────────────────────────────── */}
+        {/* -- STEP: SCANNING ----------------------------------------- */}
         {step === "scanning" && (
           <div
             style={{
@@ -284,7 +362,7 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
               flexDirection: "column",
               alignItems: "center",
               gap: 20,
-              padding: "24px 0",
+              padding: "18px 0",
             }}
           >
             {imageDataUrl && (
@@ -294,16 +372,19 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                   width: 112,
                   height: 176,
                   overflow: "hidden",
-                  border: `1px solid ${T.border}`,
+                  borderWidth: 1,
+                  borderStyle: "solid",
+                  borderColor: T.line,
                   flexShrink: 0,
                 }}
               >
                 <img
                   src={imageDataUrl}
-                  alt="Receipt"
+                  alt="The receipt currently being scanned"
                   style={{ width: "100%", height: "100%", objectFit: "cover" }}
                 />
                 <div
+                  aria-hidden
                   style={{
                     position: "absolute",
                     left: 0,
@@ -318,37 +399,25 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
               </div>
             )}
 
-            <div style={{ width: "100%", maxWidth: 280, display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 6, color: T.soft }}>
-                  <Sparkles size={11} style={{ color: T.accent }} />
-                  Qwen 3.8 Vision
-                </span>
-                <span style={{ color: T.faint }}>{scanProgress.pct}%</span>
-              </div>
-              <div style={{ height: 4, borderRadius: 999, background: "oklch(93% 0.005 90)", overflow: "hidden" }}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${scanProgress.pct}%`,
-                    borderRadius: 999,
-                    background: scanProgress.pct === 100 ? "oklch(60% 0.15 145)" : T.accent,
-                    transition: "width 0.5s ease",
-                  }}
-                />
-              </div>
+            <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10 }}>
+              <BlockMeter pct={scanProgress.pct} />
+              <MetaLine size={9} color={T.faint} align="center">
+                {scanProgress.status}
+              </MetaLine>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.soft }}>
-              <Loader2 size={14} className="animate-spin" style={{ color: T.accent }} />
-              {scanProgress.status}
-            </div>
+            <DashRule margin="2px 0" />
+
+            <MetaLine size={9} color={T.soft} align="center">
+              <Sparkles size={9} aria-hidden style={{ display: "inline", verticalAlign: "middle", marginRight: 5 }} />
+              READING VIA QWEN 3.8 VISION · DO NOT REMOVE PAPER
+            </MetaLine>
           </div>
         )}
 
-        {/* ── STEP: DETAILS ───────────────────────────────────────── */}
+        {/* -- STEP: DETAILS ------------------------------------------ */}
         {step === "details" && (
-          <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {scanError && (
               <div
                 style={{
@@ -356,14 +425,17 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                   alignItems: "flex-start",
                   gap: 8,
                   padding: "10px 12px",
-                  borderRadius: 10,
-                  background: "oklch(95% 0.04 25)",
+                  borderWidth: 1,
+                  borderStyle: "solid",
+                  borderColor: "oklch(60% 0.14 25)",
                   color: "oklch(40% 0.12 25)",
-                  fontSize: 12,
+                  fontSize: 11,
+                  lineHeight: 1.6,
+                  letterSpacing: "0.04em",
                 }}
               >
-                <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                <span>Couldn&apos;t read the receipt. Enter the details manually. ({scanError})</span>
+                <AlertCircle size={13} aria-hidden style={{ flexShrink: 0, marginTop: 2 }} />
+                <span>SCAN FAILED. KEY THE DETAILS IN BY HAND. ({scanError})</span>
               </div>
             )}
 
@@ -373,18 +445,23 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  padding: "10px 14px",
-                  borderRadius: 10,
-                  background: "oklch(96% 0.02 255)",
-                  fontSize: 12,
+                  gap: 10,
+                  padding: "9px 11px",
+                  borderWidth: 1,
+                  borderStyle: "solid",
+                  borderColor: T.accent,
+                  color: T.accent,
+                  fontSize: 9,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
                 }}
               >
-                <span style={{ display: "flex", alignItems: "center", gap: 6, color: T.accent, fontWeight: 600 }}>
-                  <Sparkles size={13} />
-                  Receipt auto-scanned
+                <span style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
+                  <Sparkles size={11} aria-hidden />
+                  Auto-Scanned
                 </span>
                 {compressedKB && (
-                  <span style={{ color: T.faint }}>
+                  <span style={{ color: T.soft }}>
                     {compressedKB.original}KB → {compressedKB.compressed}KB
                   </span>
                 )}
@@ -395,8 +472,16 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
               <div style={{ position: "relative" }}>
                 <img
                   src={imageDataUrl}
-                  alt="Receipt"
-                  style={{ width: "100%", borderRadius: 10, maxHeight: 140, objectFit: "cover" }}
+                  alt="The scanned receipt attached to this entry"
+                  style={{
+                    width: "100%",
+                    maxHeight: 140,
+                    objectFit: "cover",
+                    filter: "grayscale(0.3) contrast(1.05)",
+                    borderWidth: 1,
+                    borderStyle: "solid",
+                    borderColor: T.line,
+                  }}
                 />
                 <button
                   onClick={() => setImageDataUrl(undefined)}
@@ -405,37 +490,45 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                     position: "absolute",
                     top: 8,
                     right: 8,
-                    padding: 6,
-                    borderRadius: 8,
-                    background: "rgba(255,255,255,0.9)",
-                    border: `1px solid ${T.border}`,
+                    width: 30,
+                    height: 30,
+                    display: "grid",
+                    placeItems: "center",
+                    borderRadius: 0,
+                    background: T.paper,
+                    borderWidth: 1,
+                    borderStyle: "solid",
+                    borderColor: T.ink,
                     cursor: "pointer",
-                    lineHeight: 0,
                   }}
                 >
-                  <Trash2 size={13} style={{ color: T.muted }} />
+                  <Trash2 size={13} aria-hidden style={{ color: T.muted }} />
                 </button>
               </div>
             )}
 
             <div>
-              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>
-                Store name
+              <label htmlFor="store" style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>
+                Merchant
                 {ocr && <ConfidenceBadge score={ocr.confidence.storeName} />}
               </label>
               <input
+                id="store"
                 type="text"
                 value={storeName}
                 onChange={(e) => setStoreName(e.target.value)}
-                placeholder="e.g. Woolworths"
+                placeholder="E.G. WOOLWORTHS"
                 style={fieldStyle}
               />
             </div>
 
-            <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Category</label>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 150px" }}>
+                <label htmlFor="dept" style={labelStyle}>
+                  Department
+                </label>
                 <select
+                  id="dept"
                   value={category}
                   onChange={(e) => setCategory(e.target.value as ProductCategory)}
                   style={fieldStyle}
@@ -447,12 +540,13 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                   ))}
                 </select>
               </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: "1 1 150px" }}>
+                <label htmlFor="date" style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>
                   Date
                   {ocr && <ConfidenceBadge score={ocr.confidence.date} />}
                 </label>
                 <input
+                  id="date"
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
@@ -462,13 +556,14 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
             </div>
 
             <div>
-              <label style={labelStyle}>Payment</label>
+              <span style={labelStyle}>Tender</span>
               <div style={{ display: "flex", gap: 8 }}>
                 {(["card", "digital", "cash"] as const).map((pm) => (
                   <button
                     key={pm}
                     onClick={() => setPaymentMethod(pm)}
-                    style={{ ...seg(paymentMethod === pm), textTransform: "capitalize" }}
+                    aria-pressed={paymentMethod === pm}
+                    style={{ ...seg(paymentMethod === pm), minHeight: 40 }}
                   >
                     {pm}
                   </button>
@@ -477,26 +572,46 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
             </div>
 
             <div>
-              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                Items
+              <span style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                Line Items
                 {ocr && <ConfidenceBadge score={ocr.confidence.items} />}
-              </label>
+              </span>
+
+              {/* Column heads mirror the printed receipt so the form and its
+                  output read as the same document. */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  fontSize: 9,
+                  letterSpacing: "0.14em",
+                  color: T.faint,
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ flex: 1 }}>ITEM</span>
+                <span style={{ width: 54, textAlign: "center" }}>QTY</span>
+                <span style={{ width: 78, textAlign: "right" }}>UNIT</span>
+                {items.length > 1 && <span style={{ width: 32 }} />}
+              </div>
+
               {items.map((it, i) => (
                 <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
                   <input
                     type="text"
                     value={it.name}
                     onChange={(e) => updateItem(i, "name", e.target.value)}
-                    placeholder="Item name"
-                    style={{ ...fieldStyle, flex: 1, padding: "9px 12px" }}
+                    placeholder={`ITEM ${String(i + 1).padStart(2, "0")}`}
+                    aria-label={`Item ${i + 1} name`}
+                    style={{ ...fieldStyle, flex: 1, minWidth: 0 }}
                   />
                   <input
                     type="number"
                     min={1}
                     value={it.quantity}
                     onChange={(e) => updateItem(i, "quantity", parseInt(e.target.value) || 1)}
-                    aria-label="Quantity"
-                    style={{ ...fieldStyle, width: 58, padding: "9px 10px" }}
+                    aria-label={`Item ${i + 1} quantity`}
+                    style={{ ...fieldStyle, width: 54, textAlign: "center" }}
                   />
                   <input
                     type="number"
@@ -505,22 +620,26 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                     value={it.unitPrice || ""}
                     onChange={(e) => updateItem(i, "unitPrice", parseFloat(e.target.value) || 0)}
                     placeholder="0.00"
-                    aria-label="Unit price"
-                    style={{ ...fieldStyle, width: 82, padding: "9px 10px" }}
+                    aria-label={`Item ${i + 1} unit price`}
+                    style={{ ...fieldStyle, width: 78, textAlign: "right" }}
                   />
                   {items.length > 1 && (
                     <button
                       onClick={() => setItems(items.filter((_, idx) => idx !== i))}
-                      aria-label="Remove item"
+                      aria-label={`Remove item ${i + 1}`}
+                      className="paper-btn"
                       style={{
                         width: 32,
-                        height: 32,
+                        height: 34,
                         flexShrink: 0,
-                        borderRadius: 8,
-                        border: `1px solid ${T.border}`,
-                        background: "#fff",
+                        borderRadius: 0,
+                        borderWidth: 1,
+                        borderStyle: "solid",
+                        borderColor: T.line,
+                        background: "transparent",
                         cursor: "pointer",
                         color: T.soft,
+                        fontFamily: MONO,
                       }}
                     >
                       ×
@@ -528,89 +647,120 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                   )}
                 </div>
               ))}
+
               <button
                 onClick={() => setItems([...items, { name: "", quantity: 1, unitPrice: 0 }])}
                 style={{
                   border: "none",
                   background: "none",
                   color: T.accent,
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
                   cursor: "pointer",
-                  padding: "4px 0",
-                  fontFamily: "inherit",
+                  padding: "8px 0",
+                  minHeight: 40,
+                  fontFamily: MONO,
                 }}
               >
-                + Add item
+                + Add Line
               </button>
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                paddingTop: 8,
-                borderTop: "1px solid oklch(93% 0.005 90)",
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.muted }}>
-                Total
-                {ocr && <ConfidenceBadge score={ocr.confidence.total} />}
-              </span>
-              <span style={{ fontSize: 17, fontWeight: 700, color: T.text }}>
-                {fmtMoney(total || ocr?.totalAmount || 0)}
-              </span>
+            {/* Live totals, printed exactly as they will appear on the receipt. */}
+            <div>
+              <DashRule margin="0 0 8px" />
+              <DotRow label="SUBTOTAL (EX GST)" value={fmtAmt(ex)} size={11} color={T.muted} />
+              <DotRow label="GST 10%" value={fmtAmt(gst)} size={11} color={T.muted} />
+              <DoubleRule margin="8px 0" />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  fontSize: 16,
+                  fontWeight: 800,
+                  letterSpacing: "0.08em",
+                }}
+              >
+                <span>TOTAL</span>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtMoney(effectiveTotal)}</span>
+              </div>
             </div>
 
             <div>
-              <label style={labelStyle}>Tags (optional)</label>
+              <label htmlFor="tags" style={labelStyle}>
+                Tags (optional)
+              </label>
               <input
+                id="tags"
                 type="text"
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
-                placeholder="e.g. weekly-shop, reimbursable"
+                placeholder="WEEKLY-SHOP, REIMBURSABLE"
                 style={fieldStyle}
               />
             </div>
 
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+            <PerfLine margin="2px 0 6px" />
+
+            <div style={{ display: "flex", gap: 10 }}>
               <button
                 onClick={onClose}
+                className="paper-btn"
                 style={{
-                  border: `1px solid ${T.border}`,
-                  background: "#fff",
-                  borderRadius: 10,
-                  padding: "11px 20px",
-                  fontSize: 14,
-                  fontWeight: 600,
+                  flex: "0 0 auto",
+                  borderWidth: 1,
+                  borderStyle: "solid",
+                  borderColor: T.line,
+                  background: "transparent",
+                  borderRadius: 0,
+                  padding: "13px 18px",
+                  minHeight: 46,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
                   cursor: "pointer",
                   color: T.label,
-                  fontFamily: "inherit",
+                  fontFamily: MONO,
                 }}
               >
-                Cancel
+                Exit
               </button>
               <button
                 onClick={handleSubmit}
                 disabled={!storeName.trim()}
+                className="paper-btn paper-btn-accent"
                 style={{
-                  border: "none",
-                  background: T.accent,
-                  color: "#fff",
-                  borderRadius: 10,
-                  padding: "11px 22px",
-                  fontSize: 14,
-                  fontWeight: 600,
+                  flex: 1,
+                  borderWidth: 1.5,
+                  borderStyle: "solid",
+                  borderColor: storeName.trim() ? T.accent : T.line,
+                  background: "transparent",
+                  color: storeName.trim() ? T.accent : T.faint,
+                  borderRadius: 0,
+                  padding: "13px 18px",
+                  minHeight: 46,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
                   cursor: storeName.trim() ? "pointer" : "not-allowed",
-                  opacity: storeName.trim() ? 1 : 0.45,
-                  fontFamily: "inherit",
+                  fontFamily: MONO,
                 }}
               >
-                Save Receipt
+                Print Receipt
               </button>
             </div>
-          </>
+
+            {!storeName.trim() && (
+              <MetaLine size={9} color={T.faint} align="center">
+                MERCHANT REQUIRED TO PRINT
+              </MetaLine>
+            )}
+          </div>
         )}
       </div>
     </div>

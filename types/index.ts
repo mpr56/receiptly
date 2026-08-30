@@ -37,7 +37,7 @@ export type SortField = "date" | "amount" | "store";
 
 export interface FilterState {
   search: string;
-  /** Empty array means "no category filter" — i.e. show all. */
+  /** Empty array means "no category filter", i.e. show all. */
   categories: ProductCategory[];
   sortField: SortField;
 }

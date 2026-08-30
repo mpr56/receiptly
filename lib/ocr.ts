@@ -16,7 +16,7 @@ export interface OCRResult {
   };
 }
 
-// ─── Category inference ───────────────────────────────────────────────────────
+// --- Category inference -------------------------------------------------------
 const CATEGORY_MAP: { keywords: string[]; category: ProductCategory }[] = [
   { keywords: ["woolworths", "coles", "aldi", "iga", "foodland", "harris farm", "grocery", "supermarket"], category: "Groceries" },
   { keywords: ["mcdonald", "kfc", "hungry jack", "subway", "domino", "pizza", "noodle", "sushi", "cafe", "restaurant", "uber eats", "doordash", "menulog", "grill", "burger", "bakery", "coffee", "alex & co", "bistro", "kitchen", "dining", "eatery"], category: "Food & Dining" },
@@ -37,7 +37,7 @@ export function inferCategory(storeName: string): ProductCategory {
   return "Other";
 }
 
-// ─── Main export — single vision API call ─────────────────────────────────────
+// --- Main export, single vision API call -------------------------------------
 export async function scanReceipt(
   imageDataUrl: string,
   onProgress?: (pct: number, status: string) => void
