@@ -43,7 +43,8 @@ export async function processReceiptImage(file: File): Promise<ProcessedImage> {
       // --- Determine crop ---
       // If image is already portrait-ish, just constrain height.
       // If it's landscape (photo taken sideways), rotate by cropping center column.
-      let cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
+      let cropX = 0, cropW = srcW;
+      const cropY = 0, cropH = srcH;
 
       const srcRatio = srcW / srcH;
       if (srcRatio > 0.8) {

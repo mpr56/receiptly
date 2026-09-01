@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Receipt, ProductCategory } from "@/types";
-import { CATEGORIES, getStoreColor, getInitials } from "@/lib/data";
+import { CATEGORIES } from "@/lib/data";
 import { processReceiptImage } from "@/lib/imageProcessor";
 import { scanReceipt, OCRResult } from "@/lib/ocr";
 import { T, MONO, seg, fieldStyle, labelStyle, fmtMoney, fmtAmt, gstOf } from "./theme";
@@ -88,6 +88,8 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
   const [paymentMethod, setPaymentMethod] = useState<"card" | "cash" | "digital">("card");
   const [items, setItems] = useState<ItemRow[]>([{ name: "", quantity: 1, unitPrice: 0 }]);
   const [tagInput, setTagInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -139,13 +141,19 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
   const effectiveTotal = total || ocr?.totalAmount || 0;
   const { ex, gst } = gstOf(effectiveTotal);
 
-  function handleSubmit() {
-    if (!storeName.trim()) return;
-    const receipt: Receipt = {
-      id: Date.now().toString(),
+  /**
+   * Files the receipt with the server, which stores the image and the row and
+   * hands back the saved record — including the id and image path it assigned.
+   * The photo travels as a data URL and is uploaded to storage server-side; it
+   * is never written into the receipt row.
+   */
+  async function handleSubmit() {
+    if (!storeName.trim() || saving) return;
+    setSaving(true);
+    setSaveError(null);
+
+    const payload = {
       storeName: storeName.trim(),
-      storeLogoInitials: getInitials(storeName.trim()),
-      storeColor: getStoreColor(storeName.trim()),
       category,
       date: new Date(`${date}T12:00:00`).toISOString(),
       totalAmount: total || (ocr?.totalAmount ?? 0),
@@ -160,13 +168,29 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
         })),
       paymentMethod,
       imageDataUrl,
-      notes: "",
       tags: tagInput
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean),
     };
-    onAdd(receipt);
+
+    try {
+      const res = await fetch("/api/receipts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Could not file the receipt");
+      }
+      const saved: Receipt = await res.json();
+      onAdd(saved);
+    } catch (err) {
+      console.error("Failed to file receipt:", err);
+      setSaveError(err instanceof Error ? err.message : "Could not file the receipt");
+      setSaving(false);
+    }
   }
 
   const heading =
@@ -731,7 +755,7 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={!storeName.trim()}
+                disabled={!storeName.trim() || saving}
                 className="paper-btn paper-btn-accent"
                 style={{
                   flex: 1,
@@ -747,13 +771,22 @@ export default function AddReceiptModal({ onAdd, onClose }: Props) {
                   fontWeight: 700,
                   letterSpacing: "0.14em",
                   textTransform: "uppercase",
-                  cursor: storeName.trim() ? "pointer" : "not-allowed",
+                  cursor: saving ? "wait" : storeName.trim() ? "pointer" : "not-allowed",
                   fontFamily: MONO,
+                  opacity: saving ? 0.6 : 1,
                 }}
               >
-                Print Receipt
+                {saving ? "Filing…" : "Print Receipt"}
               </button>
             </div>
+
+            {saveError && (
+              <div role="alert">
+                <MetaLine size={9} color="oklch(45% 0.15 25)" align="center">
+                  {saveError}
+                </MetaLine>
+              </div>
+            )}
 
             {!storeName.trim() && (
               <MetaLine size={9} color={T.faint} align="center">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Receipt } from "@/types";
 import {
   T,
@@ -21,12 +21,15 @@ import { DashRule, DoubleRule, Barcode, MetaLine, Stamp } from "./paper";
 
 interface Props {
   receipt: Receipt;
+  /** Printed on the receipt as the cardholder and order name. */
+  cashier: string;
+  onDelete: (id: string) => void;
   onClose: () => void;
 }
 
 /** How the tender block reads depends on how it was paid, cash receipts show
  *  change due, cards show an auth trace, wallets show a device token. */
-function tenderLines(r: Receipt): [string, string][] {
+function tenderLines(r: Receipt, cashier: string): [string, string][] {
   const auth = authCode(r.id);
   if (r.paymentMethod === "cash") {
     const tendered = Math.ceil(r.totalAmount / 5) * 5;
@@ -46,13 +49,16 @@ function tenderLines(r: Receipt): [string, string][] {
   return [
     ["CARD #", `**** **** **** ${cardTail(r.id)}`],
     ["AUTH CODE", auth],
-    ["CARDHOLDER", "MANAV"],
+    ["CARDHOLDER", cashier],
   ];
 }
 
-export default function ReceiptModal({ receipt, onClose }: Props) {
+export default function ReceiptModal({ receipt, cashier, onDelete, onClose }: Props) {
   const cs = catStyle(receipt.category);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -62,6 +68,44 @@ export default function ReceiptModal({ receipt, onClose }: Props) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // The image lives in a private bucket, so it needs a signed URL. Minting one
+  // per open rather than per listed receipt: the ledger shows no images, so
+  // signing a whole page of them would be wasted round trips.
+  useEffect(() => {
+    if (!receipt.imagePath) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/receipts/${receipt.id}`);
+        if (!res.ok) throw new Error("Request failed");
+        const { imageUrl: url } = await res.json();
+        if (active) setImageUrl(url ?? null);
+      } catch (err) {
+        console.error("Failed to sign receipt image:", err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [receipt.id, receipt.imagePath]);
+
+  async function handleDelete() {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Request failed");
+      onDelete(receipt.id);
+    } catch (err) {
+      console.error("Failed to void receipt:", err);
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
 
   const d = new Date(receipt.date);
   const longDate = d
@@ -180,7 +224,7 @@ export default function ReceiptModal({ receipt, onClose }: Props) {
               <DashRule margin="18px 0 12px" />
 
               <MetaLine size={10} color="#4a4a4a">
-                ORDER {orderNo(receipt.id)} FOR MANAV
+                ORDER {orderNo(receipt.id)} FOR {cashier}
               </MetaLine>
               <MetaLine size={10} color="#4a4a4a">
                 {longDate} · {clock}
@@ -268,7 +312,7 @@ export default function ReceiptModal({ receipt, onClose }: Props) {
               <DashRule margin="14px 0 10px" />
 
               {/* -- Tender --------------------------------------------- */}
-              {tenderLines(receipt).map(([k, v]) => (
+              {tenderLines(receipt, cashier).map(([k, v]) => (
                 <div
                   key={k}
                   style={{
@@ -333,24 +377,46 @@ export default function ReceiptModal({ receipt, onClose }: Props) {
                 )}
               </div>
 
-              {receipt.imageDataUrl && (
+              {receipt.imagePath && (
                 <>
                   <DashRule margin="14px 0 10px" />
                   <MetaLine size={9} color="#8a8a8a">
                     SCANNED ORIGINAL
                   </MetaLine>
-                  <img
-                    src={receipt.imageDataUrl}
-                    alt={`Photo of the original receipt from ${receipt.storeName}`}
-                    style={{
-                      width: "100%",
-                      marginTop: 8,
-                      maxHeight: 150,
-                      objectFit: "cover",
-                      filter: "grayscale(0.4) contrast(1.08)",
-                      border: "1px solid rgba(0,0,0,0.14)",
-                    }}
-                  />
+                  {imageUrl ? (
+                    // A signed storage URL with a short TTL: next/image would
+                    // cache it past its expiry and then serve a broken image.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={imageUrl}
+                      alt={`Photo of the original receipt from ${receipt.storeName}`}
+                      style={{
+                        width: "100%",
+                        marginTop: 8,
+                        maxHeight: 150,
+                        objectFit: "cover",
+                        filter: "grayscale(0.4) contrast(1.08)",
+                        border: "1px solid rgba(0,0,0,0.14)",
+                      }}
+                    />
+                  ) : (
+                    // Hold the space so the receipt does not jump when it lands.
+                    <div
+                      style={{
+                        width: "100%",
+                        marginTop: 8,
+                        height: 96,
+                        border: "1px dashed rgba(0,0,0,0.18)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <MetaLine size={9} color="#a5a5a5">
+                        Retrieving…
+                      </MetaLine>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -370,7 +436,9 @@ export default function ReceiptModal({ receipt, onClose }: Props) {
                 <Barcode
                   value={receipt.id}
                   height={40}
-                  caption={`RECEIPTLY.APP/${receipt.id}`}
+                  // Ids are UUIDs; the full 36 characters overrun the tape, and
+                  // a short reference is what a real receipt prints anyway.
+                  caption={`RECEIPTLY.APP/${receipt.id.slice(0, 8).toUpperCase()}`}
                 />
               </div>
 
@@ -378,6 +446,33 @@ export default function ReceiptModal({ receipt, onClose }: Props) {
                 <MetaLine size={8} color="#a5a5a5" align="center">
                   ★ ★ ★ CUSTOMER COPY ★ ★ ★
                 </MetaLine>
+              </div>
+
+              {/* Voiding is destructive and takes the stored photo with it, so
+                  the first press only arms it. */}
+              <div style={{ marginTop: 18, textAlign: "center" }}>
+                <button
+                  className="no-print"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  style={{
+                    background: "transparent",
+                    borderWidth: 1,
+                    borderStyle: "dashed",
+                    borderColor: confirmDelete ? "oklch(45% 0.15 25)" : "rgba(0,0,0,0.22)",
+                    color: confirmDelete ? "oklch(45% 0.15 25)" : "#8a8a8a",
+                    borderRadius: 0,
+                    padding: "9px 16px",
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: "0.16em",
+                    textTransform: "uppercase",
+                    cursor: deleting ? "wait" : "pointer",
+                    fontFamily: MONO,
+                  }}
+                >
+                  {deleting ? "Voiding…" : confirmDelete ? "Press again to void" : "Void this record"}
+                </button>
               </div>
             </div>
           </div>
